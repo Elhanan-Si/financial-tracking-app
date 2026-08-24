@@ -56,6 +56,7 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
       _selectedYearMonth = DateFormat('yyyy-MM').format(newDate);
       _controllers.clear();
       _rolloverMap.clear();
+      _incomeController.clear();
     });
   }
 
@@ -120,9 +121,17 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
   Widget build(BuildContext context) {
     final categoriesAsync = ref.watch(allCategoriesStreamProvider('expense'));
     final budgetsAsync = ref.watch(budgetsStreamProvider(_selectedYearMonth));
+    final dynamicIncomeAsync = ref.watch(dynamicMonthlyNetIncomeProvider(_selectedYearMonth));
 
     final categories = categoriesAsync.value ?? [];
     final existingBudgets = budgetsAsync.value ?? [];
+    final dynamicIncome = dynamicIncomeAsync.value;
+
+    if (dynamicIncome != null && (_incomeController.text.isEmpty || _incomeController.text == '18000')) {
+      _incomeController.text = dynamicIncome.totalNetIncome.toStringAsFixed(0);
+    }
+
+    final currentTotalIncome = double.tryParse(_incomeController.text.trim()) ?? (dynamicIncome?.totalNetIncome ?? 18000.0);
 
     // Map existing budgets to inputs
     final budgetByCatId = {for (final b in existingBudgets) b.categoryId: b};
@@ -190,6 +199,53 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
           ),
           const SizedBox(height: AppSpacing.md),
 
+          // Dynamic Net Monthly Income Summary Banner
+          if (dynamicIncome != null) ...[
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.incomeLight,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.income.withAlpha(50)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(AppIcons.salary, color: AppColors.income, size: 20),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'הכנסה חודשית נטו מחושבת דינמית',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppColors.income),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '₪${dynamicIncome.totalNetIncome.toStringAsFixed(0)}',
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.income),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'משכורת בסיס (הגדרות): ₪${dynamicIncome.baseSalary.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                      Text(
+                        'הכנסות נוספות שדווחו: +₪${dynamicIncome.additionalIncome.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+
           // Quick Planning via Popular Budget Rules Card (Item 10)
           Card(
             child: Padding(
@@ -221,6 +277,7 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
                         child: TextField(
                           controller: _incomeController,
                           keyboardType: TextInputType.number,
+                          onChanged: (_) => setState(() {}),
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                           decoration: const InputDecoration(
                             labelText: 'הכנסה חודשית נטו',
@@ -276,6 +333,11 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
                 final ctrl = _controllers[cat.id] ?? TextEditingController();
                 final isRollover = _rolloverMap[cat.id] ?? false;
 
+                final currentAmount = double.tryParse(ctrl.text) ?? 0.0;
+                final percentage = currentTotalIncome > 0
+                    ? ((currentAmount / currentTotalIncome) * 100).toStringAsFixed(1)
+                    : '0';
+
                 return Card(
                   margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                   child: Padding(
@@ -294,9 +356,27 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    cat.name,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        cat.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                      ),
+                                      if (currentAmount > 0) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary.withAlpha(25),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            '$percentage% מההכנסה',
+                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.primary),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                   Text(
                                     cat.isNeeds ? 'צרכים בסיסיים' : 'מותרות',
@@ -334,6 +414,7 @@ class _BudgetPlanningScreenState extends ConsumerState<BudgetPlanningScreen> {
                               child: TextField(
                                 controller: ctrl,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                onChanged: (_) => setState(() {}),
                                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                                 decoration: const InputDecoration(
                                   labelText: 'תקציב יעד חודשי',

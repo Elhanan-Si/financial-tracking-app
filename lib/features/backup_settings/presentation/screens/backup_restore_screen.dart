@@ -1,9 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_icons.dart';
 import '../../../../core/constants/app_spacing.dart';
+import '../../../../core/widgets/financial_info_tooltip.dart';
 import '../../../auth_lock/presentation/controllers/auth_controller.dart';
 import '../../data/services/backup_service.dart';
 
@@ -22,6 +28,125 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   void dispose() {
     _restoreController.dispose();
     super.dispose();
+  }
+
+  void _exportZipArchive() async {
+    setState(() => _isLoading = true);
+    try {
+      final zipBytes = await ref.read(backupServiceProvider).exportBackupZipArchive();
+      final dateStr = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      final defaultFileName = 'financial_backup_$dateStr.backup';
+
+      final outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'שמור קובץ גיבוי מאובטח',
+        fileName: defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: ['backup', 'zip'],
+      );
+
+      if (outputPath != null) {
+        final file = File(outputPath);
+        await file.writeAsBytes(zipBytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('קובץ הגיבוי נשמר בהצלחה בנתיב: $outputPath'),
+              backgroundColor: AppColors.income,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('שגיאה בייצוא קובץ גיבוי: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _pickAndRestoreZipArchive() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['backup', 'zip', 'json'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      Uint8List? bytes = file.bytes;
+
+      if (bytes == null && file.path != null) {
+        final ioFile = File(file.path!);
+        if (await ioFile.exists()) {
+          bytes = await ioFile.readAsBytes();
+        }
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('לא ניתן לקרוא את קובץ הגיבוי שנבחר'), backgroundColor: AppColors.error),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('שחזור נתונים מקובץ גיבוי'),
+          content: Text(
+            'האם לשחזר את כל נתוני האפליקציה מתוך הקובץ "${file.name}" (${(bytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB)?\n\n'
+            'שים לב: פעולה זו תחליף את כלל הנתונים הקיימים במכשיר.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('שחזר כעת'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+
+      setState(() => _isLoading = true);
+
+      final ext = file.extension?.toLowerCase() ?? '';
+      if (ext == 'json') {
+        final jsonStr = utf8.decode(bytes);
+        await ref.read(backupServiceProvider).restoreFromJsonBackup(jsonStr);
+      } else {
+        await ref.read(backupServiceProvider).restoreFromBackupZipArchive(bytes);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('כל הנתונים שוחזרו בהצלחה מתוך קובץ הגיבוי!'),
+            backgroundColor: AppColors.income,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('שגיאה בשחזור: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _exportJson() async {
@@ -295,29 +420,43 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('ייצוא גיבוי מלא (JSON)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                            Text('כולל חשבונות, תנועות, תקציבים, השקעות ונכסים', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            Text('ייצוא קובץ גיבוי מאובטח (.backup)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                            Text('קובץ דחוס ומוגן המכיל את כלל נתוני החשבונות, התנועות, התקציבים והנכסים עם חתימת SHA-256', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                           ],
                         ),
+                      ),
+                      const FinancialInfoTooltip(
+                        title: 'קובץ גיבוי מאובטח (.backup / .zip)',
+                        explanation: 'קובץ הגיבוי מאחסן את כל נתוני המערכת בפורמט דחוס ומאובטח עם חתימה קריפטוגרפית (SHA-256).\n\nהקובץ מאפשר העברה פשוטה ובטוחה של כל הנתונים למכשיר חדש או שמירת עותק גיבוי מקומי.',
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _exportZipArchive,
+                      icon: const Icon(Icons.archive_outlined, size: 20),
+                      label: const Text('ייצא ושמור קובץ גיבוי (.backup)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
                   Row(
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _isLoading ? null : _exportJson,
-                          icon: const Icon(AppIcons.copy, size: 16),
-                          label: const Text('העתק גיבוי מלא ללוח', style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: _isLoading ? null : _exportCsv,
                           icon: const Icon(AppIcons.file, size: 16),
                           label: const Text('ייצוא תנועות ל-Excel', style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoading ? null : _exportJson,
+                          icon: const Icon(AppIcons.copy, size: 16),
+                          label: const Text('העתק JSON ללוח', style: TextStyle(fontSize: 12)),
                         ),
                       ),
                     ],
@@ -335,42 +474,58 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  const Row(
                     children: [
-                      const CircleAvatar(
+                      CircleAvatar(
                         backgroundColor: AppColors.warningLight,
                         child: Icon(AppIcons.importData, color: AppColors.warning),
                       ),
-                      const SizedBox(width: AppSpacing.md),
-                      const Expanded(
+                      SizedBox(width: AppSpacing.md),
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('שחזור נתונים מגיבוי', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                            Text('הדבק קובץ גיבוי JSON מוצפן ומאומת', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            Text('שחזור נתונים מקובץ גיבוי', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                            Text('טעינה ושחזור מלא מתוך קובץ .backup או .zip שנשמר בעבר', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                           ],
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  TextField(
-                    controller: _restoreController,
-                    maxLines: 4,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                    decoration: InputDecoration(
-                      hintText: 'הדבק כאן את תוכן קובץ ה-JSON לשחזור...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
                   SizedBox(
                     width: double.infinity,
+                    height: 48,
                     child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _restoreJson,
-                      icon: const Icon(AppIcons.refresh, size: 18),
-                      label: const Text('שחזר נתונים כעת'),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+                      onPressed: _isLoading ? null : _pickAndRestoreZipArchive,
+                      icon: const Icon(Icons.folder_open_rounded, size: 20),
+                      label: const Text('בחר קובץ גיבוי לשחזור (.backup / .zip)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  ExpansionTile(
+                    title: const Text('שחזור מתקדם מלוח ההעתקה (JSON)', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                    children: [
+                      TextField(
+                        controller: _restoreController,
+                        maxLines: 4,
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                        decoration: InputDecoration(
+                          hintText: 'הדבק כאן את תוכן קובץ ה-JSON לשחזור...',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoading ? null : _restoreJson,
+                          icon: const Icon(AppIcons.refresh, size: 16),
+                          label: const Text('שחזר מטקסט JSON שהודבק'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

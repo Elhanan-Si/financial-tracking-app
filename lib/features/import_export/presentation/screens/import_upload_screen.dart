@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +25,8 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
   String _selectedSource = 'Isracard';
   String? _selectedAccountId;
   final TextEditingController _csvTextController = TextEditingController();
+  Uint8List? _selectedExcelBytes;
+  String? _selectedFileName;
   bool _isLoading = false;
 
   final List<Map<String, String>> _sources = [
@@ -196,56 +201,173 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // 3. File Input / Raw CSV Paste
-              const Text('3. טען קובץ CSV או הדבק נתונים', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+              // 3. File Input / Excel / CSV Picker
+              const Text('3. טען קובץ Excel / CSV או הדבק נתונים', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               const SizedBox(height: AppSpacing.xs),
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: ElevatedButton.icon(
                       onPressed: () async {
-                        final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-                        if (clipboardData?.text != null && clipboardData!.text!.isNotEmpty) {
-                          _csvTextController.text = clipboardData.text!;
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('התוכן נטען בהצלחה מלוח ההעתקה'), backgroundColor: AppColors.income),
-                            );
+                        try {
+                          final result = await FilePicker.platform.pickFiles(
+                            type: FileType.custom,
+                            allowedExtensions: ['xlsx', 'xls', 'csv'],
+                            withData: true,
+                          );
+
+                          if (result != null && result.files.isNotEmpty) {
+                            final file = result.files.single;
+                            final ext = file.extension?.toLowerCase() ?? '';
+                            Uint8List? bytes = file.bytes;
+
+                            if (bytes == null && file.path != null) {
+                              final ioFile = File(file.path!);
+                              if (await ioFile.exists()) {
+                                bytes = await ioFile.readAsBytes();
+                              }
+                            }
+
+                            if (bytes != null) {
+                              if (ext == 'xlsx' || ext == 'xls') {
+                                setState(() {
+                                  _selectedExcelBytes = bytes;
+                                  _selectedFileName = file.name;
+                                  _csvTextController.clear();
+                                });
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('נטען בהצלחה קובץ אקסל: ${file.name}'),
+                                      backgroundColor: AppColors.income,
+                                    ),
+                                  );
+                                }
+                              } else {
+                                // CSV
+                                final text = String.fromCharCodes(bytes);
+                                setState(() {
+                                  _selectedExcelBytes = null;
+                                  _selectedFileName = file.name;
+                                  _csvTextController.text = text;
+                                });
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('נטען בהצלחה קובץ CSV: ${file.name}'),
+                                      backgroundColor: AppColors.income,
+                                    ),
+                                  );
+                                }
+                              }
+                            }
                           }
-                        } else {
+                        } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('לוח ההעתקה ריק. הדבק ידנית או לחץ על טען דוגמה')),
+                              SnackBar(content: Text('שגיאה בבחירת קובץ: $e'), backgroundColor: AppColors.error),
                             );
                           }
                         }
                       },
-                      icon: const Icon(AppIcons.importData, size: 16),
-                      label: const Text('עיין / טען מלוח ההעתקה', style: TextStyle(fontSize: 12)),
+                      icon: const Icon(AppIcons.importData, size: 18),
+                      label: const Text('בחר קובץ Excel / CSV', style: TextStyle(fontWeight: FontWeight.w700)),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _loadSampleData,
-                      icon: const Icon(AppIcons.refresh, size: 16),
-                      label: const Text('טען נתוני דוגמה', style: TextStyle(fontSize: 12)),
-                    ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+                      if (clipboardData?.text != null && clipboardData!.text!.isNotEmpty) {
+                        setState(() {
+                          _selectedExcelBytes = null;
+                          _selectedFileName = 'clipboard_data.csv';
+                          _csvTextController.text = clipboardData.text!;
+                        });
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('התוכן נטען בהצלחה מלוח ההעתקה'), backgroundColor: AppColors.income),
+                          );
+                        }
+                      } else {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('לוח ההעתקה ריק. הדבק ידנית או לחץ על טען דוגמה')),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.paste_rounded, size: 16),
+                    label: const Text('הדבק מלוח', style: TextStyle(fontSize: 12)),
                   ),
                 ],
               ),
               const SizedBox(height: AppSpacing.xs),
-              TextField(
-                controller: _csvTextController,
-                maxLines: 8,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'הדבק כאן את תוכן קובץ ה-CSV המיוצא מהבנק/אשראי...',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: AppColors.surface,
+
+              // Active Selected File Banner or CSV Text Area
+              if (_selectedExcelBytes != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F766E).withAlpha(20),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF0F766E).withAlpha(60)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.table_chart_rounded, color: Color(0xFF0F766E), size: 28),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedFileName ?? 'קובץ Excel נטען',
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                            ),
+                            Text(
+                              'גודל קובץ: ${(_selectedExcelBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB • מוכן לפענוח',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () {
+                          setState(() {
+                            _selectedExcelBytes = null;
+                            _selectedFileName = null;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ] else ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('עריכת תוכן CSV ידנית:', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    TextButton.icon(
+                      onPressed: _loadSampleData,
+                      icon: const Icon(AppIcons.refresh, size: 14),
+                      label: const Text('טען נתוני דוגמה', style: TextStyle(fontSize: 11)),
+                    ),
+                  ],
+                ),
+                TextField(
+                  controller: _csvTextController,
+                  maxLines: 6,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  decoration: InputDecoration(
+                    hintText: 'הדבק כאן את תוכן קובץ ה-CSV או טען קובץ אקסל למעלה...',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.xl),
 
               // Process & Continue Button
@@ -255,10 +377,12 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
                   onPressed: _isLoading
                       ? null
                       : () async {
+                          final hasExcel = _selectedExcelBytes != null && _selectedExcelBytes!.isNotEmpty;
                           final csvContent = _csvTextController.text.trim();
-                          if (csvContent.isEmpty) {
+
+                          if (!hasExcel && csvContent.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('אנא הדבק תוכן CSV או טען דוגמה')),
+                              const SnackBar(content: Text('אנא בחר קובץ Excel / CSV או הדבק נתונים')),
                             );
                             return;
                           }
@@ -269,7 +393,8 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
                             final results = await ref.read(importControllerProvider).parseAndEvaluate(
                                   accountId: _selectedAccountId!,
                                   sourceName: _selectedSource,
-                                  csvContent: csvContent,
+                                  csvContent: hasExcel ? null : csvContent,
+                                  excelBytes: hasExcel ? _selectedExcelBytes : null,
                                 );
 
                             setState(() => _isLoading = false);
@@ -284,6 +409,7 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
                             }
 
                             final accName = accounts.firstWhere((a) => a.id == _selectedAccountId).name;
+                            final fileName = _selectedFileName ?? (hasExcel ? 'statement_$_selectedSource.xlsx' : 'statement_$_selectedSource.csv');
 
                             if (context.mounted) {
                               Navigator.push(
@@ -293,7 +419,7 @@ class _ImportUploadScreenState extends ConsumerState<ImportUploadScreen> {
                                     accountId: _selectedAccountId!,
                                     accountName: accName,
                                     sourceName: _selectedSource,
-                                    fileName: 'statement_$_selectedSource.csv',
+                                    fileName: fileName,
                                   ),
                                 ),
                               );

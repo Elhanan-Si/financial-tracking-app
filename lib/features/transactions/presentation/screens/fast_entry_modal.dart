@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_icons.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../../../accounts/presentation/controllers/accounts_controller.dart';
+import '../../../backup_settings/presentation/controllers/salary_tax_settings_controller.dart';
 import '../../../categories_tags/presentation/controllers/categories_controller.dart';
 import '../../../categories_tags/presentation/widgets/category_search_picker.dart';
 import '../../domain/models/transaction_model.dart';
@@ -38,6 +39,7 @@ class _FastEntryModalState extends ConsumerState<FastEntryModal> {
   final _noteController = TextEditingController();
 
   TransactionType _selectedType = TransactionType.expense;
+  bool _isIncomeGross = false;
   String? _selectedAccountId;
   String? _selectedCategoryId;
   DateTime _selectedDate = DateTime.now();
@@ -92,15 +94,25 @@ class _FastEntryModalState extends ConsumerState<FastEntryModal> {
     setState(() => _isSubmitting = true);
 
     try {
+      double finalAmount = amount;
+      String? finalNote = _noteController.text.trim();
+      if (_selectedType == TransactionType.income && _isIncomeGross) {
+        final taxSettings = ref.read(salaryTaxSettingsProvider);
+        final calc = taxSettings.calculateFromGross(amount);
+        finalAmount = calc.net;
+        final taxNote = '[ברוטו: ₪${amount.toStringAsFixed(0)}, נוכה מס: ₪${calc.tax.toStringAsFixed(0)}]';
+        finalNote = finalNote.isNotEmpty ? '$finalNote $taxNote' : taxNote;
+      }
+
       // Optimistic UI: perform operation
       await ref.read(transactionsControllerProvider).addTransaction(
             accountId: _selectedAccountId!,
             categoryId: _isSplitMode ? null : _selectedCategoryId,
             merchantName: _merchantController.text.trim(),
-            amount: amount,
+            amount: finalAmount,
             type: _selectedType,
             date: _selectedDate,
-            note: _noteController.text.trim(),
+            note: finalNote,
             splits: _isSplitMode ? _splits : null,
           );
 
@@ -190,6 +202,19 @@ class _FastEntryModalState extends ConsumerState<FastEntryModal> {
                 });
               },
             ),
+            if (_selectedType == TransactionType.income) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Center(
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('הכנסה נטו (Net)')),
+                    ButtonSegment(value: true, label: Text('הכנסה ברוטו (Gross)')),
+                  ],
+                  selected: {_isIncomeGross},
+                  onSelectionChanged: (set) => setState(() => _isIncomeGross = set.first),
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
 
             // Large Hero Amount Input
@@ -206,13 +231,63 @@ class _FastEntryModalState extends ConsumerState<FastEntryModal> {
               ),
               decoration: InputDecoration(
                 hintText: '0.00 ₪',
-                labelText: 'סכום העסקה',
+                labelText: _selectedType == TransactionType.income
+                    ? (_isIncomeGross ? 'סכום הכנסה ברוטו' : 'סכום הכנסה נטו')
+                    : 'סכום העסקה',
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600),
                 contentPadding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
                 fillColor: _selectedType.color.withAlpha(10),
               ),
               onChanged: (_) => setState(() {}),
             ),
+            if (_selectedType == TransactionType.income && currentAmount > 0) ...[
+              const SizedBox(height: 6),
+              Builder(builder: (context) {
+                final taxSettings = ref.watch(salaryTaxSettingsProvider);
+                if (_isIncomeGross) {
+                  final calc = taxSettings.calculateFromGross(currentAmount);
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.income.withAlpha(20),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.income.withAlpha(60)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'חישוב מס אוטומטי (לפי ${taxSettings.defaultTaxRate.toStringAsFixed(0)}% בהגדרות):',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('ניכוי מס: -₪${calc.tax.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, color: AppColors.error, fontWeight: FontWeight.w600)),
+                            Text('נטו להפקדה בחשבון: ₪${calc.net.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, color: AppColors.income, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                } else {
+                  final calc = taxSettings.calculateFromNet(currentAmount);
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'נטו להפקדה: ₪${currentAmount.toStringAsFixed(0)} • שווי ברוטו משוער: ₪${calc.gross.toStringAsFixed(0)} (מס: ₪${calc.tax.toStringAsFixed(0)})',
+                      style: const TextStyle(fontSize: 11, color: AppColors.primaryDark, fontWeight: FontWeight.w600),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }
+              }),
+            ],
             const SizedBox(height: AppSpacing.md),
 
             // Merchant Autocomplete Field

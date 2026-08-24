@@ -130,8 +130,14 @@ class AutoCategorizationRepositoryImpl implements AutoCategorizationRepository {
       final acc = row.readTable(_db.accountsTable);
       final merchant = row.readTableOrNull(_db.merchantsTable);
 
+      final noteText = tx.note?.trim() ?? '';
+      final merchantText = merchant?.name.trim() ?? '';
+      final displayDesc = noteText.isNotEmpty
+          ? (merchantText.isNotEmpty && noteText != merchantText ? '$merchantText - $noteText' : noteText)
+          : (merchantText.isNotEmpty ? merchantText : 'תנועה ללא תיאור');
+
       final eval = LocalLearningEngine.evaluateSuggestion(
-        rawDescription: tx.note ?? '',
+        rawDescription: displayDesc,
         merchantDefaultCategoryId: merchant?.defaultCategoryId,
         activeRules: rules,
         merchantCategoryFrequency: frequencies,
@@ -142,7 +148,7 @@ class AutoCategorizationRepositoryImpl implements AutoCategorizationRepository {
       suggestions.add(
         CategorizationSuggestionModel(
           transactionId: tx.id,
-          description: tx.note ?? 'תנועה ללא תיאור',
+          description: displayDesc,
           amount: tx.amount,
           date: tx.date,
           accountId: acc.id,
@@ -182,16 +188,25 @@ class AutoCategorizationRepositoryImpl implements AutoCategorizationRepository {
   @override
   Future<int> applyRuleRetroactively(CategoryRuleModel rule) async {
     return await _db.transaction(() async {
-      final uncategorized = await (_db.select(_db.transactionsTable)
-            ..where((tbl) => tbl.categoryId.isNull()))
-          .get();
+      final query = _db.select(_db.transactionsTable).join([
+        leftOuterJoin(_db.merchantsTable, _db.merchantsTable.id.equalsExp(_db.transactionsTable.merchantId)),
+      ]);
+      query.where(_db.transactionsTable.categoryId.isNull());
 
+      final rows = await query.get();
       int appliedCount = 0;
       final now = DateTime.now();
 
-      for (final tx in uncategorized) {
-        final desc = tx.note ?? '';
-        if (rule.matches(desc)) {
+      for (final row in rows) {
+        final tx = row.readTable(_db.transactionsTable);
+        final merchant = row.readTableOrNull(_db.merchantsTable);
+        final noteText = tx.note?.trim() ?? '';
+        final merchantText = merchant?.name.trim() ?? '';
+        final fullDesc = noteText.isNotEmpty
+            ? (merchantText.isNotEmpty && noteText != merchantText ? '$merchantText - $noteText' : noteText)
+            : merchantText;
+
+        if (rule.matches(fullDesc) || rule.matches(noteText) || rule.matches(merchantText)) {
           await (_db.update(_db.transactionsTable)..where((tbl) => tbl.id.equals(tx.id))).write(
             TransactionsTableCompanion(
               categoryId: Value(rule.categoryId),

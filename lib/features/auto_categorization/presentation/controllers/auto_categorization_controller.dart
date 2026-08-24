@@ -17,6 +17,7 @@ final categoryRulesStreamProvider = StreamProvider<List<CategoryRuleModel>>((ref
 
 final uncategorizedSuggestionsProvider =
     StateNotifierProvider<UncategorizedSuggestionsNotifier, AsyncValue<List<CategorizationSuggestionModel>>>((ref) {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(autoCategorizationRepositoryProvider);
   return UncategorizedSuggestionsNotifier(repo);
 });

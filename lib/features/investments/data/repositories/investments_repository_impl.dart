@@ -17,42 +17,13 @@ class InvestmentsRepositoryImpl implements InvestmentsRepository {
 
   @override
   Stream<List<HoldingModel>> watchHoldings() {
-    final query = _db.select(_db.holdingsTable).join([
-      innerJoin(_db.securitiesTable, _db.securitiesTable.id.equalsExp(_db.holdingsTable.securityId)),
-    ]);
-
-    return query.watch().asyncMap((rows) async {
-      final holdings = <HoldingModel>[];
-
-      for (final row in rows) {
-        final h = row.readTable(_db.holdingsTable);
-        final s = row.readTable(_db.securitiesTable);
-
-        final fxRate = (s.currency == 'ILS')
-            ? 1.0
-            : await _syncService.getExchangeRate(from: s.currency, to: 'ILS');
-
-        holdings.add(
-          HoldingModel(
-            id: h.id,
-            securityId: s.id,
-            securityTicker: s.ticker,
-            securityName: s.name,
-            securityType: _parseSecurityType(s.securityType),
-            quantity: h.quantity,
-            averageCostBasis: h.averageCostBasis,
-            currentPrice: s.currentPrice > 0 ? s.currentPrice : h.averageCostBasis,
-            currency: s.currency,
-            exchangeRateToIls: fxRate,
-            purchaseExchangeRate: fxRate, // fallback or calculated
-            lastPriceUpdate: s.lastPriceUpdate,
-            createdAt: h.createdAt,
-            updatedAt: h.updatedAt,
-          ),
-        );
-      }
-      return holdings;
-    });
+    return _db
+        .customSelect(
+          'SELECT 1',
+          readsFrom: {_db.holdingsTable, _db.securitiesTable, _db.exchangeRatesTable},
+        )
+        .watch()
+        .asyncMap((_) async => await getHoldings());
   }
 
   @override

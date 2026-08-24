@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:financial_tracking/core/database/app_database.dart';
@@ -50,6 +52,40 @@ class BackupService {
     };
 
     return const JsonEncoder.withIndent('  ').convert(rootBackup);
+  }
+
+  /// Exports a compressed .backup / .zip archive containing backup_data.json and manifest.json
+  Future<Uint8List> exportBackupZipArchive() async {
+    final jsonStr = await exportFullJsonBackup();
+    final jsonBytes = utf8.encode(jsonStr);
+
+    final archive = Archive();
+    archive.addFile(ArchiveFile('backup_data.json', jsonBytes.length, jsonBytes));
+
+    final manifest = {
+      'app': 'FinancialTracking',
+      'version': '2.7.0',
+      'exportedAt': DateTime.now().toIso8601String(),
+      'format': 'ZIP_V1',
+    };
+    final manifestBytes = utf8.encode(jsonEncode(manifest));
+    archive.addFile(ArchiveFile('manifest.json', manifestBytes.length, manifestBytes));
+
+    final zipBytes = ZipEncoder().encode(archive);
+    return Uint8List.fromList(zipBytes!);
+  }
+
+  /// Restores database from a compressed .backup / .zip archive
+  Future<bool> restoreFromBackupZipArchive(Uint8List zipBytes) async {
+    final archive = ZipDecoder().decodeBytes(zipBytes);
+    final backupFile = archive.findFile('backup_data.json');
+    if (backupFile == null) {
+      throw const FormatException('קובץ הגיבוי פגום: לא נמצא קובץ נתונים ראשי (backup_data.json)');
+    }
+
+    final contentBytes = backupFile.content as List<int>;
+    final jsonStr = utf8.decode(contentBytes);
+    return await restoreFromJsonBackup(jsonStr);
   }
 
   /// Exports flat CSV for Excel of all transactions

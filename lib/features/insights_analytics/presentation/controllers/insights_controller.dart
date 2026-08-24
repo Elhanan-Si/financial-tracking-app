@@ -16,6 +16,7 @@ final insightsRepositoryProvider = Provider<InsightsRepository>((ref) {
 
 final spendingClassificationFutureProvider =
     FutureProvider.family<SpendingClassificationModel, DateTime?>((ref, month) {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(insightsRepositoryProvider);
   return repo.getSpendingClassification(month: month);
 });
@@ -23,6 +24,7 @@ final spendingClassificationFutureProvider =
 final comparativeAnalyticsFutureProvider =
     FutureProvider.family<ComparativeAnalyticsModel, ({DateTime? current, DateTime? previous})>(
         (ref, periods) {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(insightsRepositoryProvider);
   return repo.getComparativeAnalytics(
     currentMonth: periods.current,
@@ -32,12 +34,14 @@ final comparativeAnalyticsFutureProvider =
 
 final savingsRateMetricsFutureProvider =
     FutureProvider.family<SavingsRateModel, DateTime?>((ref, month) {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(insightsRepositoryProvider);
   return repo.getSavingsRateMetrics(month: month);
 });
 
 final monthlyFinancialBriefFutureProvider =
     FutureProvider.family<FinancialBriefModel, DateTime?>((ref, month) {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(insightsRepositoryProvider);
   return repo.getMonthlyFinancialBrief(month: month);
 });

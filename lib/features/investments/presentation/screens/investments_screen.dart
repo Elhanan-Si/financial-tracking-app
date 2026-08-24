@@ -21,6 +21,14 @@ class InvestmentsScreen extends ConsumerStatefulWidget {
 class _InvestmentsScreenState extends ConsumerState<InvestmentsScreen> {
   bool _isUSD = false;
 
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref.read(investmentsControllerProvider).syncPrices();
+    });
+  }
+
   String _formatAmount(double amountILS, double fxRate) {
     if (_isUSD) {
       final usd = fxRate > 0 ? amountILS / fxRate : amountILS;
@@ -51,16 +59,16 @@ class _InvestmentsScreenState extends ConsumerState<InvestmentsScreen> {
         actions: [
           const FinancialInfoTooltip(
             title: 'תיק השקעות, מדדים ושערי מט"ח',
-            explanation: 'ניהול ומעקב אחר ניירות ערך סחירים (מניות, קרנות סל, אג"ח):\n\n• שווי תיק כולל: סך כל ערך השוק של הפוזיציות הפעילות לפי מחיר היחידה האחרון.\n\n• עלות בסיס ממוצעת (Average Cost Basis): סך כל עלות הרכישה המשוקללת של הניירות כולל עמלות.\n\n• רווח/הפסד לא ממומש: ההפרש בין שווי השוק הנוכחי לעלות הבסיס.\n\n• הפרדת רווח נייר מול רווח מט"ח: המערכת מפרידה בין שינוי מחיר המניה בבורסה לבין שינויים בשער הדולר/שקל.\n\n• שערי חליפין: המרת שווי התיק בין שקלים (₪) לדולרים (\$) מתבצעת בזמן אמת לפי שער החליפין היציג.',
+            explanation: 'ניהול ומעקב אחר ניירות ערך סחירים (מניות, קרנות סל, אג"ח):\n\n• שווי תיק כולל: סך כל ערך השוק של הפוזיציות הפעילות לפי מחיר היחידה האחרון.\n\n• עלות בסיס ממוצעת (Average Cost Basis): סך כל עלות הרכישה המשוקללת של הניירות כולל עמלות.\n\n• רווח/הפסד לא ממומש: ההפרש בין שווי השוק הנוכחי לעלות הבסיס.\n\n• הפרדת רווח נייר מול רווח מט"ח: המערכת מפרידה בין שינוי מחיר המניה בבורסה לבין שינויים בשער הדולר/שקל.\n\n• שערי חליפין: המרת שווי התיק בין שקלים (₪) לדולרים (\$) מתבצעת בזמן אמת לפי שער החליפין היציג הנמשך ישירות מה-API.',
             formula: 'רווח כולל = (שווי שוק נוכחי - עלות בסיס)\nשווי בדולרים = שווי בשקלים / שער דולר-שקל',
             practicalTip: 'שימוש במתג ₪ / \$ מאפשר לבחון את ביצועי התיק במטבע המקור של המניות ללא תנודות מט"ח.',
           ),
           IconButton(
             icon: const Icon(AppIcons.refresh),
-            tooltip: 'סנכרן שערים מ-Finnhub',
+            tooltip: 'רענן שערי מניות ומט"ח מ-API',
             onPressed: () async {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('מרענן שערי מניות ומט"ח...'), duration: Duration(seconds: 1)),
+                const SnackBar(content: Text('מרענן שערי מניות ומט"ח מ-API...'), duration: Duration(seconds: 1)),
               );
               await ref.read(investmentsControllerProvider).syncPrices();
             },

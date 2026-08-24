@@ -43,11 +43,13 @@ final cashFlowRepositoryProvider = Provider<CashFlowRepository>((ref) {
 });
 
 final creditCardForecastsProvider = FutureProvider<List<CreditCardForecastModel>>((ref) async {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(cashFlowRepositoryProvider);
   return await repo.getCreditCardForecasts();
 });
 
 final cashFlowForecastProvider = FutureProvider<CashFlowForecastSummary>((ref) async {
+  ref.watch(dbTableChangeSignalProvider);
   final repo = ref.watch(cashFlowRepositoryProvider);
   final days = ref.watch(cashFlowDaysHorizonProvider);
   final scenarios = ref.watch(whatIfScenariosProvider);

@@ -140,3 +140,23 @@ final appDatabaseProvider = Provider<AppDatabase>((ref) {
   });
   return AppDatabase(executor);
 });
+
+/// Reactive signal stream provider that emits whenever relevant database tables are mutated
+final dbTableChangeSignalProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return db
+      .customSelect(
+        'SELECT 1',
+        readsFrom: {
+          db.transactionsTable,
+          db.accountsTable,
+          db.recurringRulesTable,
+          db.installmentItemsTable,
+          db.budgetsTable,
+          db.categoriesTable,
+          db.exchangeRatesTable,
+        },
+      )
+      .watch()
+      .map((rows) => DateTime.now().millisecondsSinceEpoch);
+});

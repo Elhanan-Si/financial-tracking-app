@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:drift/native.dart';
 import 'package:financial_tracking/core/database/app_database.dart';
 import 'package:financial_tracking/core/services/sync/finnhub_api_service.dart';
+import 'package:financial_tracking/core/services/sync/forex_api_service.dart';
 import 'package:financial_tracking/core/services/sync/hybrid_sync_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -40,11 +41,12 @@ void main() {
 
     test('HybridSyncService syncs forex rates into Drift DB and retrieves rate', () async {
       final mockClient = MockClient((request) async {
-        if (request.url.path.contains('forex/rates')) {
+        if (request.url.toString().contains('open.er-api.com') || request.url.path.contains('forex/rates')) {
           return http.Response(
             jsonEncode({
-              'base': 'USD',
-              'quote': {'ILS': 3.72, 'EUR': 0.91, 'GBP': 0.77},
+              'result': 'success',
+              'base_code': 'USD',
+              'rates': {'ILS': 3.72, 'EUR': 0.91, 'GBP': 0.77},
             }),
             200,
           );
@@ -53,7 +55,8 @@ void main() {
       });
 
       final api = FinnhubApiService(client: mockClient);
-      final syncService = HybridSyncService(db, api: api);
+      final forexApi = ForexApiService(client: mockClient);
+      final syncService = HybridSyncService(db, api: api, forexApi: forexApi);
 
       await syncService.syncForexRates();
 

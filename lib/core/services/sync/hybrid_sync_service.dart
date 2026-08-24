@@ -1,13 +1,17 @@
 import 'package:drift/drift.dart';
 import '../../database/app_database.dart';
 import 'finnhub_api_service.dart';
+import 'forex_api_service.dart';
 
-/// Hybrid Sync Service: Fetches live data from Finnhub when online, caches to Drift, and falls back to offline DB
+/// Hybrid Sync Service: Fetches live data from Finnhub & Forex APIs when online, caches to Drift, and falls back to offline DB
 class HybridSyncService {
   final AppDatabase _db;
   final FinnhubApiService _api;
+  final ForexApiService _forexApi;
 
-  HybridSyncService(this._db, {FinnhubApiService? api}) : _api = api ?? FinnhubApiService();
+  HybridSyncService(this._db, {FinnhubApiService? api, ForexApiService? forexApi})
+      : _api = api ?? FinnhubApiService(),
+        _forexApi = forexApi ?? ForexApiService();
 
   /// Refreshes quotes for all tracked securities and caches them in DB
   Future<void> syncAllSecuritiesQuotes() async {
@@ -45,13 +49,20 @@ class HybridSyncService {
     }
   }
 
-  /// Syncs exchange rates (USD/ILS, EUR/ILS, GBP/ILS) and caches them in DB
+  /// Syncs exchange rates (USD/ILS, EUR/ILS, GBP/ILS) from real-time API and caches them in DB
   Future<void> syncForexRates() async {
     try {
-      final rates = await _api.fetchForexRates(base: 'USD');
-      final now = DateTime.now();
+      Map<String, double> rates;
+      try {
+        rates = await _forexApi.fetchLatestRates(base: 'USD');
+      } catch (_) {
+        rates = await _api.fetchForexRates(base: 'USD');
+      }
 
-      final ilsRate = rates['ILS'] ?? 3.65;
+      final now = DateTime.now();
+      final ilsRate = rates['ILS'];
+      if (ilsRate == null || ilsRate <= 0) return;
+
       final eurRate = rates['EUR'] ?? 0.92;
       final gbpRate = rates['GBP'] ?? 0.78;
 

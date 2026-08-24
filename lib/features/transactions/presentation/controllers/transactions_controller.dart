@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../accounts/presentation/controllers/accounts_controller.dart';
+import '../../../auto_categorization/presentation/controllers/auto_categorization_controller.dart';
 import '../../../categories_tags/presentation/controllers/categories_controller.dart';
 import '../../data/repositories/transactions_repository_impl.dart';
 import '../../domain/models/transaction_model.dart';
@@ -117,14 +118,16 @@ final transactionSplitsProvider = FutureProvider.family<List<TransactionSplitMod
 final transactionsControllerProvider = Provider<TransactionsController>((ref) {
   final repo = ref.watch(transactionsRepositoryProvider);
   final categoriesRepo = ref.watch(categoriesRepositoryProvider);
-  return TransactionsController(repo, categoriesRepo);
+  final autoCatRepo = ref.watch(autoCategorizationRepositoryProvider);
+  return TransactionsController(repo, categoriesRepo, autoCatRepo);
 });
 
 class TransactionsController {
   final TransactionsRepository _repo;
   final dynamic _categoriesRepo;
+  final dynamic _autoCatRepo;
 
-  TransactionsController(this._repo, this._categoriesRepo);
+  TransactionsController(this._repo, this._categoriesRepo, [this._autoCatRepo]);
 
   /// Fast entry with Optimistic UI execution and Merchant auto-learning
   Future<String> addTransaction({
@@ -166,6 +169,22 @@ class TransactionsController {
         resolvedCategoryId = merchant.defaultCategoryId;
         isAutoCategorized = true;
       }
+    }
+
+    if (resolvedCategoryId == null && _autoCatRepo != null) {
+      try {
+        final rules = await _autoCatRepo.getCategoryRules();
+        final textToCheck = '${merchantName ?? ''} ${note ?? ''}'.trim();
+        for (final rule in rules) {
+          if (rule.matches(textToCheck) ||
+              (merchantName != null && rule.matches(merchantName.trim())) ||
+              (note != null && rule.matches(note.trim()))) {
+            resolvedCategoryId = rule.categoryId;
+            isAutoCategorized = true;
+            break;
+          }
+        }
+      } catch (_) {}
     }
 
     final tx = TransactionModel(

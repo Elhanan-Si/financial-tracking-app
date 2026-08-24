@@ -7,6 +7,7 @@ import '../../../../core/constants/app_icons.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../controllers/help_settings_controller.dart';
 import 'backup_restore_screen.dart';
+import 'salary_tax_settings_screen.dart';
 
 /// Screen 20, 21, 22 Hub: Settings & Preferences (מרכז הגדרות והתאמה אישית)
 class SettingsHubScreen extends ConsumerWidget {
@@ -26,6 +27,18 @@ class SettingsHubScreen extends ConsumerWidget {
             title: 'חשבונות ואמצעי תשלום',
             subtitle: 'ניהול חשבונות בנק, כרטיסי אשראי ויתרות',
             onTap: () => context.push('${AppRoutes.settings}/accounts'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _buildSettingsTile(
+            icon: AppIcons.salary,
+            title: 'שכר, הכנסות ומיסוי',
+            subtitle: 'הגדרת משכורת בסיס חודשית ושיעור מס הכנסה אוטומטי',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SalaryTaxSettingsScreen()),
+              );
+            },
           ),
           const SizedBox(height: AppSpacing.sm),
           _buildSettingsTile(
