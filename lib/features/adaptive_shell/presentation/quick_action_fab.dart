@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../../core/constants/app_icons.dart';
+import '../../../core/constants/app_icons.dart';
 import '../../transactions/presentation/screens/fast_entry_modal.dart';
 
 /// Floating Action Button for fast transaction recording
